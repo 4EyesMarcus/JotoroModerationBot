@@ -72,3 +72,5 @@ In addition, the bot includes the following commands:
 /ban_link - Bans a link from the discord and erases the link from the message
 
 /set_changelog_channel - Sets the channel for the bot to send updates for it in
+
+/setup - Brings you through all the nooks and cranies to get the bot rollin your server, your way.
