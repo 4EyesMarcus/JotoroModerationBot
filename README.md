@@ -73,4 +73,4 @@ In addition, the bot includes the following commands:
 
 /set_changelog_channel - Sets the channel for the bot to send updates for it in
 
-/setup - Brings you through all the nooks and cranies to get the bot rollin your server, your way.
+/setup – Guides you through configuring Jotoro Moderation so it works exactly the way your server needs it.
