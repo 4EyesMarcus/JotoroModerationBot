@@ -187,15 +187,21 @@ class Setup(commands.Cog):
         )
 
         embed.add_field(
-            name="You can change these later",
+            name="Next Steps",
             value=(
-                "Run `/setup` again to replace these settings.\n"
-                "Use `/add_word`, `/remove_word`, and `/ban_link` "
-                "to customize moderation."
+                "✅ Core moderation setup is complete.\n\n"
+                "**Optional ticket setup**\n"
+                "• Run `/setup_tickets` to create the permanent ticket category.\n"
+                "• Choose the ticket logging channel and first support role.\n"
+                "• Add more support roles later with `/add_support_role`.\n\n"
+                "**Moderation customization**\n"
+                "• Run `/setup` again to replace the main settings.\n"
+                "• Use `/add_word`, `/remove_word`, and `/whitelist` "
+                "to adjust word moderation.\n"
+                "• Use `/ban_link` to add server-specific blocked links."
             ),
             inline=False,
         )
-
         await interaction.followup.send(
             embed=embed,
             ephemeral=True,
@@ -318,8 +324,11 @@ class Setup(commands.Cog):
         )
 
         embed.add_field(
-            name="Run this command",
-            value="`/setup`",
+            name="Setup order",
+            value=(
+                "1. Run `/setup` for moderation and changelogs.\n"
+                "2. Run `/setup_tickets` to enable private support tickets."
+            ),
             inline=False,
         )
 
@@ -329,11 +338,13 @@ class Setup(commands.Cog):
                 "• The server's muted role\n"
                 "• Whether to use Jotoro's default banned words\n"
                 "• Whether to use Jotoro's default banned links\n"
-                "• A channel for Jotoro changelogs"
+                "• A channel for Jotoro changelogs\n\n"
+                "`/setup_tickets` will then ask for:\n"
+                "• The ticket transcript/logging channel\n"
+                "• The first support role"
             ),
             inline=False,
         )
-
         embed.add_field(
             name="Changelog channel",
             value=(
