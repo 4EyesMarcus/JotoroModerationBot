@@ -15,7 +15,8 @@ bot = commands.Bot(
 
 extensions = [
     "moderation",
-    "setup"
+    "setup",
+    "tickets"
 ]
 
 commands_synced = False

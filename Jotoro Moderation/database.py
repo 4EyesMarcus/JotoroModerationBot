@@ -161,7 +161,23 @@ async def initialize_database() -> None:
                 PRIMARY KEY (guild_id, word)
             )
         """)
+        await database.execute("""
+            CREATE TABLE IF NOT EXISTS support_roles (
+                guild_id INTEGER NOT NULL,
+                role_id INTEGER NOT NULL,
+                PRIMARY KEY (guild_id, role_id)
+            )
+        """)
 
+        await database.execute("""
+            CREATE TABLE IF NOT EXISTS open_tickets (
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (guild_id, user_id)
+            )
+        """)
         await database.commit()
 
     print(f"[DATABASE] Ready: {DATABASE_PATH}")
@@ -572,3 +588,119 @@ async def get_all_changelog_channels() -> list[tuple[int, int]]:
         (int(guild_id), int(channel_id))
         for guild_id, channel_id in rows
     ]
+
+# ---------------------------------------------------------
+# Ticket System
+# ---------------------------------------------------------
+
+async def set_ticket_settings(
+    guild_id: int,
+    category_id: int,
+    logging_channel_id: int,
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        await database.execute("""
+            INSERT INTO guild_settings (
+                guild_id,
+                ticket_category_id,
+                ticket_log_channel_id
+            )
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                ticket_category_id = excluded.ticket_category_id,
+                ticket_log_channel_id = excluded.ticket_log_channel_id
+        """, (guild_id, category_id, logging_channel_id))
+        await database.commit()
+
+
+async def get_ticket_settings(
+    guild_id: int,
+) -> Optional[tuple[int, int]]:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        async with database.execute("""
+            SELECT ticket_category_id, ticket_log_channel_id
+            FROM guild_settings
+            WHERE guild_id = ?
+        """, (guild_id,)) as cursor:
+            row = await cursor.fetchone()
+
+    if row is None or row[0] is None:
+        return None
+
+    return row[0], row[1]
+
+
+async def add_support_role(guild_id: int, role_id: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        cursor = await database.execute("""
+            INSERT OR IGNORE INTO support_roles (guild_id, role_id)
+            VALUES (?, ?)
+        """, (guild_id, role_id))
+        await database.commit()
+        return cursor.rowcount > 0
+
+
+async def remove_support_role(guild_id: int, role_id: int) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        cursor = await database.execute("""
+            DELETE FROM support_roles
+            WHERE guild_id = ? AND role_id = ?
+        """, (guild_id, role_id))
+        await database.commit()
+        return cursor.rowcount > 0
+
+
+async def get_support_role_ids(guild_id: int) -> list[int]:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        async with database.execute("""
+            SELECT role_id
+            FROM support_roles
+            WHERE guild_id = ?
+            ORDER BY role_id
+        """, (guild_id,)) as cursor:
+            rows = await cursor.fetchall()
+
+    return [int(row[0]) for row in rows]
+
+
+async def add_open_ticket(
+    guild_id: int,
+    user_id: int,
+    channel_id: int,
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        await database.execute("""
+            INSERT INTO open_tickets (guild_id, user_id, channel_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                channel_id = excluded.channel_id
+        """, (guild_id, user_id, channel_id))
+        await database.commit()
+
+
+async def get_open_ticket_channel_id(
+    guild_id: int,
+    user_id: int,
+) -> Optional[int]:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        async with database.execute("""
+            SELECT channel_id
+            FROM open_tickets
+            WHERE guild_id = ? AND user_id = ?
+        """, (guild_id, user_id)) as cursor:
+            row = await cursor.fetchone()
+
+    return int(row[0]) if row else None
+
+
+async def remove_open_ticket(
+    guild_id: int,
+    user_id: int,
+) -> bool:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        cursor = await database.execute("""
+            DELETE FROM open_tickets
+            WHERE guild_id = ? AND user_id = ?
+        """, (guild_id, user_id))
+        await database.commit()
+        return cursor.rowcount > 0

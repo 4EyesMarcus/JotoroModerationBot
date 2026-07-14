@@ -1,415 +1,560 @@
-import os
-import json
-import nextcord
 import asyncio
-import logging
 import io
-import datetime
-from io import BytesIO
+from datetime import datetime, timezone
+
+import nextcord
+from nextcord import Interaction, slash_command
 from nextcord.ext import commands
-from nextcord import slash_command
 
-class tickets(commands.Cog):
-    def __init__(self, bot):
+from database import (
+    add_open_ticket,
+    add_support_role,
+    get_open_ticket_channel_id,
+    get_support_role_ids,
+    get_ticket_settings,
+    remove_open_ticket,
+    remove_support_role,
+    set_ticket_settings,
+)
+
+
+class Tickets(commands.Cog):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.support_file_path = os.path.join(os.path.dirname(__file__), "support.json")
-        self.ticketlogs_file_path = os.path.join(os.path.dirname(__file__), "ticketlogs.json")
 
-    @slash_command(name="newticket", description="Create a new ticket")
-    async def newticket(self, ctx):
-        # Call the create_ticket function to create a new ticket channel
-        ticket_channel = await self.create_ticket(ctx)
-
-        if ticket_channel is None:
-            # If the ticket channel could not be created, send an error message to the user
-            await ctx.send("Could not create ticket channel. Please try again later.")
+    @slash_command(
+        name="setup_tickets",
+        description="Set up the ticket system for this server",
+    )
+    async def setup_tickets(
+        self,
+        interaction: Interaction,
+        logging_channel: nextcord.TextChannel,
+        support_role: nextcord.Role,
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
             return
 
-        # Send a message to the user with the new channel link
-        await ctx.send(f"Created ticket {ticket_channel.mention}.")
+        guild = interaction.guild
 
-
-    
-    @slash_command(name="support_roles", description="View Current Support Roles")
-    async def support_roles(self, ctx):
-        support_file_path = os.path.join(os.path.dirname(__file__), "support.json")
-        if not ctx.user.guild_permissions.administrator:
-            await ctx.send("You do not have the required permissions to use this command.")
+        if interaction.user.id != guild.owner_id:
+            await interaction.response.send_message(
+                "Only the server owner can set up tickets.",
+                ephemeral=True,
+            )
             return
 
+        bot_member = guild.me
 
-        # Read the support roles from the file
-        with open(support_file_path, "r") as f:
-            support_data = json.load(f)
-
-        support_roles = support_data.get(str(ctx.guild.id), [])
-
-        if not support_roles:
-            # If no roles are set, let the user know
-            await ctx.send("No support roles have been set for this guild.")
-        else:
-            # Send the list of support roles to the user
-            role_list = ", ".join(support_roles)
-            await ctx.send(f"The support roles for this server are: {role_list}")
-
-
-    @slash_command(name="add_support_role", description="Manually add a support role for your Discord server")
-    async def add_support_role(self, ctx):
-        support_file_path = os.path.join(os.path.dirname(__file__), "support.json")
-        if not ctx.user.guild_permissions.administrator:
-            await ctx.send("You do not have the required permissions to use this command.")
+        if bot_member is None or not bot_member.guild_permissions.manage_channels:
+            await interaction.response.send_message(
+                "I need the **Manage Channels** permission.",
+                ephemeral=True,
+            )
             return
 
-        # Read the existing support data from the file
-        with open(support_file_path, "r") as f:
-            support_data = json.load(f)
-
-        # Ask the user for the role name
-        prompt_view = nextcord.ui.View()
-        prompt_view.input = nextcord.ui.TextInput(label="Please enter the name of the support role:")
-        prompt_message = await ctx.send("Please enter the name of the support role:", view=prompt_view)
-
-        # Wait for the user to enter the role name
-        def check(m):
-            return m.author == ctx.user and m.channel == ctx.channel
-        try:
-            message = await self.bot.wait_for("message", check=check, timeout=60.0)
-            role_name = message.content
-        except asyncio.TimeoutError:
-            await prompt_message.delete()
-            await ctx.send("Timed out waiting for a response. Please try again.")
+        if support_role == guild.default_role:
+            await interaction.response.send_message(
+                "The `@everyone` role cannot be a support role.",
+                ephemeral=True,
+            )
             return
 
-        # Find the role with the given name
-        role = nextcord.utils.get(ctx.guild.roles, name=role_name)
-        if role is None:
-            await ctx.send(f"No role with the name '{role_name}' was found in this server. Please try again.")
+        log_permissions = logging_channel.permissions_for(bot_member)
+
+        if not (
+            log_permissions.view_channel
+            and log_permissions.send_messages
+            and log_permissions.attach_files
+        ):
+            await interaction.response.send_message(
+                f"I need **View Channel**, **Send Messages**, and "
+                f"**Attach Files** in {logging_channel.mention}.",
+                ephemeral=True,
+            )
             return
 
-        # Add the role ID to the support data for the guild
-        guild_id = str(ctx.guild.id)
-        existing_role_ids = support_data.get(guild_id, [])
-        if role.id not in existing_role_ids:
-            existing_role_ids.append(role.id)
+        await interaction.response.defer(ephemeral=True)
 
-        # Update the support data for the guild with the new role ID
-        support_data[guild_id] = existing_role_ids
-        with open(support_file_path, "w") as f:
-            json.dump(support_data, f)
+        settings = await get_ticket_settings(guild.id)
+        category = guild.get_channel(settings[0]) if settings else None
 
-        # Send a confirmation message to the user
-        await ctx.send(f"The role {role_name} has been added as a support role for this server.")
-
-
-    @slash_command(name="remove_support_role", description="Manually remove a support role for your Discord server")
-    async def remove_support_role(self, ctx):
-        support_file_path = os.path.join(os.path.dirname(__file__), "support.json")
-        if not ctx.user.guild_permissions.administrator:
-            await ctx.send("You do not have the required permissions to use this command.")
-            return
-
-        # Read the existing support data from the file
-        with open(support_file_path, "r") as f:
-            support_data = json.load(f)
-
-        # Ask the user for the role name
-        prompt_view = nextcord.ui.View()
-        prompt_view.input = nextcord.ui.TextInput(label="Please enter the name of the support role you want to remove:")
-        prompt_message = await ctx.send("Please enter the name of the support role you want to remove:", view=prompt_view)
-
-        # Wait for the user to enter the role name
-        def check(m):
-            return m.author == ctx.user and m.channel == ctx.channel
+        if not isinstance(category, nextcord.CategoryChannel):
+            category = nextcord.utils.get(guild.categories, name="Support Tickets")
 
         try:
-            message = await self.bot.wait_for("message", check=check, timeout=60.0)
-            role_name = message.content
-        except asyncio.TimeoutError:
-            await prompt_message.delete()
-            await ctx.send("Timed out waiting for a response. Please try again.")
-            return
+            if not isinstance(category, nextcord.CategoryChannel):
+                category = await guild.create_category(
+                    name="Support Tickets",
+                    reason=f"Ticket setup completed by {interaction.user}",
+                )
 
-        # Remove the role from the support data for the guild
-        guild_id = str(ctx.guild.id)
-        existing_roles = support_data.get(guild_id, [])
-        if role_name in existing_roles:
-            existing_roles.remove(role_name)
+            await set_ticket_settings(
+                guild.id,
+                category.id,
+                logging_channel.id,
+            )
 
-        # Update the support data for the guild with the removed role
-        support_data[guild_id] = existing_roles
-        with open(support_file_path, "w") as f:
-            json.dump(support_data, f)
+            await add_support_role(guild.id, support_role.id)
 
-        # Send a confirmation message to the user
-        await ctx.send(f"The role {role_name} has been removed as a support role for this server.")
-
-    @slash_command(name="set_logging_channel", description="Set the logging channel for ticket closures")
-    async def set_logging_channel(self, ctx):
-        if not ctx.user.guild_permissions.administrator:
-            await ctx.send("You do not have the required permissions to use this command.")
-            return
-        # Ask the user for the logging channel
-        prompt_view = nextcord.ui.View()
-        prompt_view.input = nextcord.ui.TextInput(label="Please enter the name of the logging channel:")
-        prompt_message = await ctx.send("Please enter the name of the logging channel:", view=prompt_view)
-
-        # Wait for the user to enter the channel name
-        def check(m):
-            return m.author == ctx.user and m.channel == ctx.channel
-        try:
-            message = await self.bot.wait_for("message", check=check, timeout=60.0)
-            logging_channel_name = message.content
-        except asyncio.TimeoutError:
-            await prompt_message.delete()
-            await ctx.send("Timed out waiting for a response. Please try again.")
-            return
-
-        # Get the logging channel object
-        logging_channel = nextcord.utils.get(ctx.guild.channels, name=logging_channel_name)
-
-        if logging_channel is None:
-            await ctx.send(f"Could not find a channel named {logging_channel_name}.")
-            return
-
-        # Read the existing logging data from the file
-        logging_file_path = os.path.join(os.path.dirname(__file__), "ticketlogs.json")
-        with open(logging_file_path, "r") as f:
-            logging_data = json.load(f)
-
-        # Update the logging data for the guild
-        guild_id = str(ctx.guild.id)
-        logging_data[guild_id] = str(logging_channel.id)
-
-        # Write the updated logging data to the file
-        with open(logging_file_path, "w") as f:
-            json.dump(logging_data, f)
-
-        await ctx.send(f"Ticket closure logs will now be sent to {logging_channel.mention}.")
-
-    # Command Functions
-    @commands.Cog.listener()
-    async def on_message(self, message: nextcord.Message):
-        if message.author.bot:
-            return
-        if message.channel.name.endswith("-ticket"):
-            # Check if the message is a slash command
-            if not message.content.startswith("!"):
-                return
-
-            # Check if the slash command is '/close'
-            command_name = message.content.split()[0][1:]
-            if command_name != "close":
-                return
-
-            # Check if the user who sent the message is the same as the one who created the ticket
-            if int(message.author.id) != int(message.channel.topic):
-                await message.channel.send("Only the ticket creator can close this ticket.")
-                return
-
-            await self.close_ticket(message)
-
-    async def create_ticket(self, ctx):
-        support_file_path = os.path.join(os.path.dirname(__file__), "support.json")
-
-        # Read the support roles from the file
-        with open(support_file_path, "r") as f:
-            support_data = json.load(f)
-
-        support_roles = support_data.get(str(ctx.guild.id), [])
-
-        if not support_roles:
-            # If no roles are set, let the user know
-            await ctx.send("No support roles have been set for this guild.")
-            return None
-
-        # Get the pre-defined category "Tickets"
-        category_name = "tickets"
-        category = nextcord.utils.get(ctx.guild.categories, name=category_name)
-
-        if category is None:
-            await ctx.send(f"Could not find {category_name} category.")
-            return None
-
-        # Get the category's overwrites
-        category_overwrites = category.overwrites
-
-        # Set up the overwrites for the new channel
-        overwrites = category_overwrites.copy()
-        for role_name in support_roles:
-            role = nextcord.utils.get(ctx.guild.roles, name=role_name)
-            if role is not None:
-                overwrites[role] = nextcord.PermissionOverwrite(read_messages=True, read_message_history=True, send_messages=True, manage_channels=True, manage_messages=True)
-
-        # Set the name of the new channel
-        channel_name = f"{ctx.user.name}-ticket"
-
-        # Check if a channel with the given name already exists
-        existing_channel = nextcord.utils.get(ctx.guild.channels, name=channel_name)
-
-        if existing_channel is not None:
-            await ctx.send(f"A channel with the name {channel_name} already exists.")
-            return None
-
-        # Create the new channel in the "Tickets" category
-        channel = await category.create_text_channel(name=channel_name, overwrites=overwrites)
-
-        # Set the topic of the channel to the user ID who created the ticket
-        await channel.edit(topic=str(ctx.user.id))
-
-        return channel
-    
-    async def get_ticket_log(self, channel: nextcord.TextChannel) -> str:
-        messages = []
-        async for message in channel.history(limit=None):
-            if message.author.bot:
-                continue
-            if message.content.startswith(f"{self.bot.command_prefix}close"):
-                continue
-            messages.append(f"{message.author.name}#{message.author.discriminator} ({message.author.id}) - {message.created_at.strftime('%Y-%m-%d %H:%M:%S')} UTC:\n{message.content}\n")
-        messages.reverse()
-        return "".join(messages)
-
-    async def close_ticket(self, message: nextcord.Message):
-        # Check if the user has the required role to close the ticket
-        support_file_path = os.path.join(os.path.dirname(__file__), "support.json")
-        with open(support_file_path, "r") as f:
-            support_data = json.load(f)
-
-        support_roles = support_data.get(str(message.guild.id), [])
-
-        # Get the ID of the ticket creator from the channel topic
-        creator_id = int(message.channel.topic)
-
-        can_close_ticket = False
-        member = message.guild.get_member(creator_id)
-        if member:
-            for role_name in support_roles:
-                role = nextcord.utils.get(message.guild.roles, name=role_name)
-                if role and role in member.roles:
-                    can_close_ticket = True
-                    break
-            if member.id == message.author.id:
-                can_close_ticket = True
-
-        # Check if the user has curator role
-        curator_role = nextcord.utils.get(message.guild.roles, name="curator")
-        if curator_role and curator_role in message.author.roles:
-            can_close_ticket = True
-
-        # Check if the user has support role
-        for member in message.channel.members:
-            for role_name in support_roles:
-                role = nextcord.utils.get(message.guild.roles, name=role_name)
-                if role and role in member.roles:
-                    can_close_ticket = True
-                    break
-
-        if not can_close_ticket:
-            await message.channel.send("Only the ticket creator, users with the required role, or curators can close this ticket." if member else "Only users with the required role or curators can close this ticket.")
-            return
-
-        # Send a message to the user to confirm the ticket closure
-        await message.channel.send("Ticket closed. If you need further assistance, please create a new ticket.")
-
-        # Log the ticket closure
-        logging_file_path = os.path.join(os.path.dirname(__file__), "ticketlogs.json")
-        with open(logging_file_path, "r") as f:
-            logging_data = json.load(f)
-
-        guild_id = str(message.guild.id)
-        if guild_id not in logging_data:
-            # If there is no logging channel set, return
-            return
-
-        logging_channel_id = logging_data[guild_id]
-        logging_channel = message.guild.get_channel(int(logging_channel_id))
-        if logging_channel is None:
-            # If the logging channel is not found, return
-            return
-
-        # Get the ticket creator
-        creator = message.guild.get_member(int(message.channel.topic))
-
-        # Create a log file and send it to the user's DM
-        log_file_content = f"Ticket closed by {message.author.name}#{message.author.discriminator} ({message.author.id}) at {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC.\n"
-        log_file_content += f"Ticket created by {creator.name}#{creator.discriminator} ({creator.id}) at {message.channel.created_at.strftime('%Y-%m-%d %H:%M:%S')} UTC.\n"
-        log_file_content += f"Ticket closed in channel {message.channel.mention}.\n"
-
-        # Get the ticket log and write it to the log file
-        ticket_log = await self.get_ticket_log(message.channel)
-        log_file_content += ticket_log
-
-        log_file = nextcord.File(BytesIO(log_file_content.encode()), filename=f"{creator.name}-log.txt")
-        try:
-            await creator.send(file=log_file)
         except nextcord.Forbidden:
-            logging.warning(f"Could not send DM to {creator.name}#{creator.discriminator} ({creator.id})")
-        except Exception as e:
-            logging.error(f"An error occurred while sending the ticket closure log to {creator.name}#{creator.discriminator} ({creator.id}): {e}")
+            await interaction.followup.send(
+                "I could not create or configure the ticket category.",
+                ephemeral=True,
+            )
+            return
 
-        # Send the log file to the logging channel
-        await logging_channel.send(file=log_file)
-        await message.channel.delete()
+        await interaction.followup.send(
+            f"Ticket setup complete.\n"
+            f"Category: **{category.name}**\n"
+            f"Logging channel: {logging_channel.mention}\n"
+            f"Support role: {support_role.mention}",
+            ephemeral=True,
+        )
+
+    @slash_command(
+        name="add_support_role",
+        description="Allow a role to access support tickets",
+    )
+    async def add_support_role_command(
+        self,
+        interaction: Interaction,
+        role: nextcord.Role,
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
+
+        if interaction.user.id != interaction.guild.owner_id:
+            await interaction.response.send_message(
+                "Only the server owner can manage support roles.",
+                ephemeral=True,
+            )
+            return
+
+        added = await add_support_role(interaction.guild.id, role.id)
+
+        await interaction.response.send_message(
+            (
+                f"{role.mention} was added as a support role."
+                if added
+                else f"{role.mention} is already a support role."
+            ),
+            ephemeral=True,
+        )
+
+    @slash_command(
+        name="remove_support_role",
+        description="Remove a role from ticket support access",
+    )
+    async def remove_support_role_command(
+        self,
+        interaction: Interaction,
+        role: nextcord.Role,
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
+
+        if interaction.user.id != interaction.guild.owner_id:
+            await interaction.response.send_message(
+                "Only the server owner can manage support roles.",
+                ephemeral=True,
+            )
+            return
+
+        removed = await remove_support_role(interaction.guild.id, role.id)
+
+        await interaction.response.send_message(
+            (
+                f"{role.mention} was removed from support roles."
+                if removed
+                else f"{role.mention} was not a support role."
+            ),
+            ephemeral=True,
+        )
+
+    @slash_command(
+        name="support_roles",
+        description="View configured ticket support roles",
+    )
+    async def support_roles(self, interaction: Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
+
+        role_ids = await get_support_role_ids(interaction.guild.id)
+        roles = [
+            interaction.guild.get_role(role_id)
+            for role_id in role_ids
+        ]
+        roles = [role for role in roles if role is not None]
+
+        await interaction.response.send_message(
+            (
+                "**Support roles:**\n"
+                + "\n".join(f"• {role.mention}" for role in roles)
+                if roles
+                else "No support roles are configured."
+            ),
+            ephemeral=True,
+        )
+
+    @slash_command(
+        name="newticket",
+        description="Create a private support ticket",
+    )
+    async def newticket(self, interaction: Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild
+        member = interaction.user
+        settings = await get_ticket_settings(guild.id)
+
+        if not settings:
+            await interaction.response.send_message(
+                "Tickets are not set up. The server owner must run `/setup_tickets`.",
+                ephemeral=True,
+            )
+            return
+
+        category = guild.get_channel(settings[0])
+
+        if not isinstance(category, nextcord.CategoryChannel):
+            await interaction.response.send_message(
+                "The configured ticket category no longer exists.",
+                ephemeral=True,
+            )
+            return
+
+        existing_channel_id = await get_open_ticket_channel_id(
+            guild.id,
+            member.id,
+        )
+
+        if existing_channel_id:
+            existing_channel = guild.get_channel(existing_channel_id)
+
+            if isinstance(existing_channel, nextcord.TextChannel):
+                await interaction.response.send_message(
+                    f"You already have an open ticket: {existing_channel.mention}",
+                    ephemeral=True,
+                )
+                return
+
+            await remove_open_ticket(guild.id, member.id)
+
+        support_role_ids = await get_support_role_ids(guild.id)
+
+        if not support_role_ids:
+            await interaction.response.send_message(
+                "No support roles are configured.",
+                ephemeral=True,
+            )
+            return
+
+        bot_member = guild.me
+
+        if bot_member is None:
+            await interaction.response.send_message(
+                "I could not check my permissions.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        overwrites = {
+            guild.default_role: nextcord.PermissionOverwrite(view_channel=False),
+            member: nextcord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+            bot_member: nextcord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_channels=True,
+                manage_messages=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+        }
+
+        support_mentions = []
+
+        for role_id in support_role_ids:
+            role = guild.get_role(role_id)
+
+            if role is None:
+                continue
+
+            overwrites[role] = nextcord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+                manage_messages=True,
+            )
+            support_mentions.append(role.mention)
+
+        safe_name = "".join(
+            character
+            for character in member.display_name.lower().replace(" ", "-")
+            if character.isalnum() or character == "-"
+        ).strip("-") or str(member.id)
+
+        try:
+            ticket_channel = await guild.create_text_channel(
+                name=f"ticket-{safe_name}"[:100],
+                category=category,
+                topic=f"ticket_owner:{member.id}",
+                overwrites=overwrites,
+                reason=f"Support ticket created by {member}",
+            )
+
+            await add_open_ticket(
+                guild.id,
+                member.id,
+                ticket_channel.id,
+            )
+
+        except nextcord.Forbidden:
+            await interaction.followup.send(
+                "I could not create the ticket channel.",
+                ephemeral=True,
+            )
+            return
+
+        embed = nextcord.Embed(
+            title="Support Ticket",
+            description=(
+                f"{member.mention}, describe what you need help with.\n\n"
+                "Use `/close` when the ticket is finished."
+            ),
+        )
+
+        await ticket_channel.send(
+            content=" ".join(support_mentions) or None,
+            embed=embed,
+            allowed_mentions=nextcord.AllowedMentions(
+                roles=True,
+                users=True,
+                everyone=False,
+            ),
+        )
+
+        await interaction.followup.send(
+            f"Your ticket was created: {ticket_channel.mention}",
+            ephemeral=True,
+        )
+
+    @slash_command(
+        name="close",
+        description="Close the current support ticket",
+    )
+    async def close_ticket(
+        self,
+        interaction: Interaction,
+        reason: str = "Resolved",
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
+
+        channel = interaction.channel
+
+        if not isinstance(channel, nextcord.TextChannel):
+            await interaction.response.send_message(
+                "This command must be used in a ticket channel.",
+                ephemeral=True,
+            )
+            return
+
+        if not channel.topic or not channel.topic.startswith("ticket_owner:"):
+            await interaction.response.send_message(
+                "This is not a Jotoro ticket channel.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            ticket_owner_id = int(channel.topic.split(":", 1)[1])
+        except (ValueError, IndexError):
+            await interaction.response.send_message(
+                "This ticket contains invalid owner information.",
+                ephemeral=True,
+            )
+            return
+
+        support_role_ids = set(
+            await get_support_role_ids(interaction.guild.id)
+        )
+        member_role_ids = {
+            role.id for role in interaction.user.roles
+        }
+
+        can_close = (
+            interaction.user.id == ticket_owner_id
+            or interaction.user.id == interaction.guild.owner_id
+            or bool(member_role_ids.intersection(support_role_ids))
+        )
+
+        if not can_close:
+            await interaction.response.send_message(
+                "Only the ticket creator, server owner, or support staff can close it.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        settings = await get_ticket_settings(interaction.guild.id)
+        logging_channel = (
+            interaction.guild.get_channel(settings[1])
+            if settings and settings[1]
+            else None
+        )
+
+        transcript = await self.create_transcript(
+            channel,
+            ticket_owner_id,
+            interaction.user,
+            reason,
+        )
+
+        filename = f"{channel.name}-transcript.txt"
+        owner = interaction.guild.get_member(ticket_owner_id)
+
+        if owner:
+            try:
+                await owner.send(
+                    f"Your ticket in **{interaction.guild.name}** was closed.",
+                    file=nextcord.File(
+                        io.BytesIO(transcript.encode("utf-8")),
+                        filename=filename,
+                    ),
+                )
+            except nextcord.HTTPException:
+                pass
+
+        if isinstance(logging_channel, nextcord.TextChannel):
+            embed = nextcord.Embed(
+                title="Ticket Closed",
+                description=f"`{channel.name}` was closed.",
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(
+                name="Ticket owner",
+                value=f"<@{ticket_owner_id}> (`{ticket_owner_id}`)",
+                inline=False,
+            )
+            embed.add_field(
+                name="Closed by",
+                value=f"{interaction.user.mention} (`{interaction.user.id}`)",
+                inline=False,
+            )
+            embed.add_field(
+                name="Reason",
+                value=reason[:1024],
+                inline=False,
+            )
+
+            try:
+                await logging_channel.send(
+                    embed=embed,
+                    file=nextcord.File(
+                        io.BytesIO(transcript.encode("utf-8")),
+                        filename=filename,
+                    ),
+                )
+            except nextcord.HTTPException as error:
+                print(f"[TICKETS] Transcript failed: {error}")
+
+        await remove_open_ticket(
+            interaction.guild.id,
+            ticket_owner_id,
+        )
+
+        await interaction.followup.send(
+            "Ticket closed. This channel will be deleted in five seconds.",
+            ephemeral=True,
+        )
+
+        await asyncio.sleep(5)
+
+        try:
+            await channel.delete(
+                reason=f"Ticket closed by {interaction.user}: {reason}"
+            )
+        except nextcord.HTTPException as error:
+            print(f"[TICKETS] Channel deletion failed: {error}")
+
+    async def create_transcript(
+        self,
+        channel: nextcord.TextChannel,
+        ticket_owner_id: int,
+        closed_by: nextcord.Member,
+        reason: str,
+    ) -> str:
+        lines = [
+            "Jotoro Moderation Ticket Transcript",
+            f"Guild: {channel.guild.name} ({channel.guild.id})",
+            f"Channel: {channel.name} ({channel.id})",
+            f"Ticket owner ID: {ticket_owner_id}",
+            f"Created: {channel.created_at.isoformat()}",
+            f"Closed by: {closed_by} ({closed_by.id})",
+            f"Closed: {datetime.now(timezone.utc).isoformat()}",
+            f"Reason: {reason}",
+            "",
+            "Messages:",
+            "",
+        ]
+
+        async for message in channel.history(
+            limit=None,
+            oldest_first=True,
+        ):
+            timestamp = message.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            content = message.clean_content or "[No text content]"
+
+            if message.attachments:
+                content += " | Attachments: " + ", ".join(
+                    attachment.url
+                    for attachment in message.attachments
+                )
+
+            lines.append(
+                f"[{timestamp}] {message.author} ({message.author.id}): {content}"
+            )
+
+        return "\n".join(lines)
 
 
-
-
-
-
-       
-
-
-
-
-
-
-
-
-
-
-
-
-
-    async def create_ticket_log(channel):
-        # Get the ticket creator's ID from the channel's topic
-        creator_id = int(channel.topic)
-
-        # Get the creator's user object
-        creator = await channel.guild.fetch_member(creator_id)
-
-        # Get the channel's messages
-        messages = await channel.history(limit=None).flatten()
-
-        # Create the log file
-        log_file_name = f"ticket_log_{channel.id}.txt"
-        log_file_path = os.path.join("logs", log_file_name)
-
-        with open(log_file_path, "w") as log_file:
-            # Write the ticket information to the file
-            log_file.write(f"Ticket created by: {creator.display_name} ({creator.id})\n")
-            log_file.write(f"Creation time: {channel.created_at}\n")
-            log_file.write(f"Closed by: {channel.guild.me.display_name} ({channel.guild.me.id})\n")
-            log_file.write(f"Closing time: {datetime.datetime.now(datetime.timezone.utc)}\n\n")
-
-            # Write the ticket messages to the file
-            for message in messages:
-                author = message.author.display_name
-                timestamp = message.created_at.strftime("%Y-%m-%d %H:%M:%S %Z")
-                content = message.clean_content
-
-                log_file.write(f"{timestamp} - {author}: {content}\n")
-
-
-
-
-
-
-
-
-
-
-
-
-        
-def setup(bot : commands.Bot):
-    bot.add_cog(tickets(bot))
+def setup(bot: commands.Bot):
+    bot.add_cog(Tickets(bot))
