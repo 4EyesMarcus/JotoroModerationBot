@@ -31,46 +31,86 @@ The check_message function checks each message for profanity and handles it appr
 The resetwarnings function is a slash command that resets warnings for a specified member.
 The Ticket class in tickets.py handles the ticket system and includes methods for opening and closing tickets.
 
-In addition, the bot includes the following commands:
+In addition, Jotoro Moderation includes the following commands:
 
-/help - displays all the available commands
+General and Setup Commands
 
-/ban - bans a member of the discord
+/help — Displays the available commands and setup information.
 
-/kick - Kicks a member from the discord
+/setup — Configures the server’s muted role, banned-word settings, banned-link settings, and changelog channel.
 
-/unban - Unbans a member that was banned
+/setup_status — Displays the current moderation, moderation-log, and ticket-system configuration.
 
-/purge - Delete a specified number of messages
+/setup_tickets — Creates and configures the private ticket category, ticket logging channel, and initial support role.
 
-/mute - mute a specific member in discord
+Moderation Commands
 
-/unmute - unmute a specific member in discord
+/ban — Bans a member from the server.
 
-/list_banned - List all profanity words
+/kick — Kicks a member from the server.
 
-/list_whitelisted - List all whitelisted words
+/purge — Deletes up to 100 recent messages.
 
-/add_word - Add a custom word to the profanity list
+/mute — Applies the server’s configured muted role to a member.
 
-/remove_word - Remove your custom word from profanity list
+/unmute — Removes a member’s muted role or active Discord timeout.
 
-/whitelist - remove or add words to the whitelist
+/clear_mute — Removes a member’s active mute and resets their AutoMod warnings while preserving their historical mute count.
 
-/newticket - Makes a new ticket under category ticket
+/warnings — Displays a member’s active warnings, mute history, current mute status, and remaining timeout.
 
-!close - Closes the ticket (Only creator of the ticket can close)
+/muted_members — Lists all members currently muted through a role or Discord timeout.
 
-/support_roles - View the support roles for your discord
+/resetwarnings — Resets a member’s active AutoMod warnings without deleting their mute history.
 
-/add_support_role - Add a support role for your discord
+/set_muted_role — Changes the role Jotoro uses when muting members.
 
-/remove_support_role - Remove a support role from your discord
+/set_modlog_channel — Selects the channel where moderation actions are recorded.
 
-/set_logging_channel - Set the channel where all ticket logs will go
+/test_modlog — Sends a test entry to verify that the configured moderation log channel is working.
 
-/ban_link - Bans a link from the discord and erases the link from the message
+Banned Words and Link Commands
 
-/set_changelog_channel - Sets the channel for the bot to send updates for it in
+/list_banned — Lists the banned words currently active in the server.
 
-/setup – Guides you through configuring Jotoro Moderation so it works exactly the way your server needs it.
+/list_whitelisted — Lists the server’s whitelisted words.
+
+/add_word — Adds a custom word to the server’s banned-word list.
+
+/remove_word — Removes a custom word from the server’s banned-word list.
+
+/whitelist — Adds or removes a word from the server’s whitelist.
+
+/ban_link — Adds a link to the server’s blocked-link list. Messages containing the blocked link are automatically removed.
+
+/list_banned_links — Lists all links currently blocked by the server.
+
+Ticket Commands
+
+/newticket — Creates a private support ticket under the server’s configured ticket category.
+
+/close — Closes the current ticket, creates a transcript, sends it to the ticket logging channel, and deletes the ticket channel.
+
+/support_roles — Displays the roles currently authorized to access support tickets.
+
+/add_support_role — Adds a role to the server’s ticket-support team.
+
+/remove_support_role — Removes a role from the server’s ticket-support team.
+
+Updates and Support
+
+/set_changelog_channel — Changes the channel where Jotoro posts bot updates.
+
+/sendreport — Sends a bug report, feature request, or support message to the bot owner.
+
+Twitch Notification Commands
+
+These commands are present in the bot, although Twitch notifications are still being finalized:
+
+/setnotificationchannel — Selects the server’s Twitch notification channel and optional mention role.
+
+/addtwitchchannel — Adds a Twitch streamer to the server’s notification list.
+
+/removetwitchchannel — Removes a Twitch streamer from the server’s notification list.
+
+/listtwitchchannels — Lists the Twitch channels currently followed by the server.
