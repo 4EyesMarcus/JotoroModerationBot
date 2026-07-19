@@ -6,6 +6,9 @@ from database import (
     clear_banned_links,
     ensure_default_banned_links,
     get_setup_status,
+    get_moderation_log_channel,
+    get_support_role_ids,
+    get_ticket_settings,
     save_initial_setup,
 )
 
@@ -187,21 +190,23 @@ class Setup(commands.Cog):
         )
 
         embed.add_field(
-            name="Next Steps",
+            name="Next steps",
             value=(
                 "✅ Core moderation setup is complete.\n\n"
-                "**Optional ticket setup**\n"
-                "• Run `/setup_tickets` to create the permanent ticket category.\n"
-                "• Choose the ticket logging channel and first support role.\n"
-                "• Add more support roles later with `/add_support_role`.\n\n"
-                "**Moderation customization**\n"
-                "• Run `/setup` again to replace the main settings.\n"
-                "• Use `/add_word`, `/remove_word`, and `/whitelist` "
-                "to adjust word moderation.\n"
-                "• Use `/ban_link` to add server-specific blocked links."
+                "**Enable moderation logs**\n"
+                "Run `/set_modlog_channel` to choose where warnings, "
+                "timeouts, mutes, kicks, and bans are recorded.\n\n"
+                "**Enable support tickets**\n"
+                "Run `/setup_tickets` to choose a ticket logging channel "
+                "and the first support role.\n\n"
+                "**Change settings later**\n"
+                "Run `/setup` again to replace the core settings.\n"
+                "Use `/add_word`, `/remove_word`, `/whitelist`, and "
+                "`/ban_link` to customize moderation."
             ),
             inline=False,
         )
+
         await interaction.followup.send(
             embed=embed,
             ephemeral=True,
@@ -226,11 +231,12 @@ class Setup(commands.Cog):
             )
             return
 
-        status = await get_setup_status(interaction.guild.id)
+        guild = interaction.guild
+        status = await get_setup_status(guild.id)
 
         if status is None or not status[4]:
             await interaction.response.send_message(
-                "Setup is incomplete. Run `/setup`.",
+                "Core setup is incomplete. Run `/setup`.",
                 ephemeral=True,
             )
             return
@@ -243,17 +249,75 @@ class Setup(commands.Cog):
             setup_completed,
         ) = status
 
-        muted_role = interaction.guild.get_role(muted_role_id)
-        changelog_channel = interaction.guild.get_channel(
+        muted_role = guild.get_role(muted_role_id)
+        changelog_channel = guild.get_channel(
             changelog_channel_id
+        )
+
+        moderation_log_channel_id = (
+            await get_moderation_log_channel(guild.id)
+        )
+        moderation_log_channel = (
+            guild.get_channel(moderation_log_channel_id)
+            if moderation_log_channel_id
+            else None
+        )
+
+        ticket_settings = await get_ticket_settings(guild.id)
+        support_role_ids = await get_support_role_ids(guild.id)
+
+        ticket_category = None
+        ticket_log_channel = None
+
+        if ticket_settings:
+            ticket_category = guild.get_channel(
+                ticket_settings[0]
+            )
+
+            if ticket_settings[1]:
+                ticket_log_channel = guild.get_channel(
+                    ticket_settings[1]
+                )
+
+        support_roles = [
+            guild.get_role(role_id)
+            for role_id in support_role_ids
+        ]
+
+        support_roles = [
+            role
+            for role in support_roles
+            if role is not None
+        ]
+
+        ticket_category_ready = isinstance(
+            ticket_category,
+            nextcord.CategoryChannel,
+        )
+
+        ticket_log_ready = isinstance(
+            ticket_log_channel,
+            nextcord.TextChannel,
+        )
+
+        ticket_roles_ready = bool(support_roles)
+
+        tickets_ready = (
+            ticket_category_ready
+            and ticket_log_ready
+            and ticket_roles_ready
         )
 
         embed = nextcord.Embed(
             title="Jotoro Moderation Setup Status",
+            description=(
+                "Review the current moderation and ticket "
+                "configuration for this server."
+            ),
         )
 
         embed.add_field(
-            name="Setup",
+            name="Core setup",
             value="✅ Complete" if setup_completed else "❌ Incomplete",
             inline=False,
         )
@@ -261,7 +325,7 @@ class Setup(commands.Cog):
         embed.add_field(
             name="Muted role",
             value=(
-                muted_role.mention
+                f"✅ {muted_role.mention}"
                 if muted_role
                 else "⚠️ Configured role no longer exists"
             ),
@@ -269,13 +333,13 @@ class Setup(commands.Cog):
         )
 
         embed.add_field(
-            name="Default words",
+            name="Default banned words",
             value="Enabled" if use_default_words else "Disabled",
             inline=True,
         )
 
         embed.add_field(
-            name="Default links",
+            name="Default banned links",
             value="Enabled" if use_default_links else "Disabled",
             inline=True,
         )
@@ -283,12 +347,89 @@ class Setup(commands.Cog):
         embed.add_field(
             name="Changelog channel",
             value=(
-                changelog_channel.mention
+                f"✅ {changelog_channel.mention}"
                 if isinstance(
                     changelog_channel,
                     nextcord.TextChannel,
                 )
                 else "⚠️ Configured channel no longer exists"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Moderation log channel",
+            value=(
+                f"✅ {moderation_log_channel.mention}"
+                if isinstance(
+                    moderation_log_channel,
+                    nextcord.TextChannel,
+                )
+                else (
+                    "❌ Not configured\n"
+                    "Run `/set_modlog_channel` to enable moderation logs."
+                )
+            ),
+            inline=False,
+        )
+
+        if tickets_ready:
+            support_role_list = ", ".join(
+                role.mention
+                for role in support_roles
+            )
+
+            ticket_status = (
+                f"✅ Configured\n"
+                f"**Category:** {ticket_category.name}\n"
+                f"**Log channel:** {ticket_log_channel.mention}\n"
+                f"**Support roles:** {support_role_list}"
+            )
+        elif ticket_settings:
+            ticket_problems = []
+
+            if not ticket_category_ready:
+                ticket_problems.append(
+                    "ticket category is missing"
+                )
+
+            if not ticket_log_ready:
+                ticket_problems.append(
+                    "logging channel is missing"
+                )
+
+            if not ticket_roles_ready:
+                ticket_problems.append(
+                    "no valid support roles are configured"
+                )
+
+            ticket_status = (
+                "⚠️ Partially configured\n"
+                + "\n".join(
+                    f"• {problem}"
+                    for problem in ticket_problems
+                )
+                + "\nRun `/setup_tickets` to repair the setup."
+            )
+        else:
+            ticket_status = (
+                "❌ Not configured\n"
+                "Run `/setup_tickets` to enable private "
+                "support tickets and transcripts."
+            )
+
+        embed.add_field(
+            name="Ticket system",
+            value=ticket_status,
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Available now",
+            value=(
+                "The ticket system is fully available. "
+                "Members can use `/newticket` after "
+                "`/setup_tickets` is complete."
             ),
             inline=False,
         )
@@ -327,24 +468,34 @@ class Setup(commands.Cog):
             name="Setup order",
             value=(
                 "1. Run `/setup` for moderation and changelogs.\n"
-                "2. Run `/setup_tickets` to enable private support tickets."
+                "2. Run `/set_modlog_channel` for moderation logs.\n"
+                "3. Run `/setup_tickets` to enable the ticket system."
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="Setup will ask for",
+            name="Core setup will ask for",
             value=(
                 "• The server's muted role\n"
                 "• Whether to use Jotoro's default banned words\n"
                 "• Whether to use Jotoro's default banned links\n"
-                "• A channel for Jotoro changelogs\n\n"
-                "`/setup_tickets` will then ask for:\n"
-                "• The ticket transcript/logging channel\n"
+                "• A channel for Jotoro changelogs"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Ticket setup is available now",
+            value=(
+                "`/setup_tickets` will create the permanent "
+                "ticket category and ask for:\n"
+                "• A transcript/logging channel\n"
                 "• The first support role"
             ),
             inline=False,
         )
+
         embed.add_field(
             name="Changelog channel",
             value=(
@@ -357,8 +508,9 @@ class Setup(commands.Cog):
         try:
             await channel.send(
                 content=(
-                    f"{owner_mention}, please run `/setup` "
-                    "to configure Jotoro Moderation."
+                    f"{owner_mention}, please run `/setup`, then "
+                    "`/set_modlog_channel` for moderation logs and "
+                    "`/setup_tickets` for support tickets."
                 ),
                 embed=embed,
                 allowed_mentions=nextcord.AllowedMentions(
