@@ -56,6 +56,7 @@ async def initialize_database() -> None:
                 twitch_notification_channel_id INTEGER,
                 twitch_mention_role_id INTEGER,
                 changelog_channel_id INTEGER,
+                moderation_log_channel_id INTEGER,
                 use_default_words INTEGER NOT NULL DEFAULT 1,
                 use_default_links INTEGER NOT NULL DEFAULT 1,
                 setup_completed INTEGER NOT NULL DEFAULT 0
@@ -110,6 +111,13 @@ async def initialize_database() -> None:
         await _add_column_if_missing(
             database,
             "guild_settings",
+            "moderation_log_channel_id",
+            "INTEGER",
+        )
+
+        await _add_column_if_missing(
+            database,
+            "guild_settings",
             "use_default_words",
             "INTEGER NOT NULL DEFAULT 1",
         )
@@ -134,9 +142,41 @@ async def initialize_database() -> None:
                 user_id INTEGER NOT NULL,
                 offenses INTEGER NOT NULL DEFAULT 0,
                 timeout_end_time REAL,
+                mute_count INTEGER NOT NULL DEFAULT 0,
+                currently_muted INTEGER NOT NULL DEFAULT 0,
+                mute_type TEXT,
+                last_mute_time REAL,
                 PRIMARY KEY (guild_id, user_id)
             )
         """)
+
+        await _add_column_if_missing(
+            database,
+            "warnings",
+            "mute_count",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+
+        await _add_column_if_missing(
+            database,
+            "warnings",
+            "currently_muted",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+
+        await _add_column_if_missing(
+            database,
+            "warnings",
+            "mute_type",
+            "TEXT",
+        )
+
+        await _add_column_if_missing(
+            database,
+            "warnings",
+            "last_mute_time",
+            "REAL",
+        )
 
         await database.execute("""
             CREATE TABLE IF NOT EXISTS banned_links (
@@ -161,6 +201,7 @@ async def initialize_database() -> None:
                 PRIMARY KEY (guild_id, word)
             )
         """)
+
         await database.execute("""
             CREATE TABLE IF NOT EXISTS support_roles (
                 guild_id INTEGER NOT NULL,
@@ -178,6 +219,7 @@ async def initialize_database() -> None:
                 PRIMARY KEY (guild_id, user_id)
             )
         """)
+
         await database.commit()
 
     print(f"[DATABASE] Ready: {DATABASE_PATH}")
@@ -358,14 +400,194 @@ async def reset_warning_count(
     guild_id: int,
     user_id: int,
 ) -> bool:
+    """Reset active warnings without deleting historical mute totals."""
     async with aiosqlite.connect(DATABASE_PATH) as database:
         cursor = await database.execute("""
-            DELETE FROM warnings
+            UPDATE warnings
+            SET offenses = 0
             WHERE guild_id = ? AND user_id = ?
         """, (guild_id, user_id))
 
         await database.commit()
         return cursor.rowcount > 0
+
+
+# ---------------------------------------------------------
+# MODERATION LOGS AND MUTE HISTORY
+# ---------------------------------------------------------
+
+async def set_moderation_log_channel(
+    guild_id: int,
+    channel_id: int,
+) -> None:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        await database.execute("""
+            INSERT INTO guild_settings (
+                guild_id,
+                moderation_log_channel_id
+            )
+            VALUES (?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                moderation_log_channel_id =
+                    excluded.moderation_log_channel_id
+        """, (guild_id, channel_id))
+
+        await database.commit()
+
+
+async def get_moderation_log_channel(
+    guild_id: int,
+) -> Optional[int]:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        async with database.execute("""
+            SELECT moderation_log_channel_id
+            FROM guild_settings
+            WHERE guild_id = ?
+        """, (guild_id,)) as cursor:
+            row = await cursor.fetchone()
+
+    return int(row[0]) if row and row[0] is not None else None
+
+
+async def record_mute(
+    guild_id: int,
+    user_id: int,
+    mute_type: str,
+    timeout_end_time: Optional[float] = None,
+) -> None:
+    """Record a new manual or automatic mute while preserving warnings."""
+    import time
+
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        await database.execute("""
+            INSERT INTO warnings (
+                guild_id,
+                user_id,
+                offenses,
+                timeout_end_time,
+                mute_count,
+                currently_muted,
+                mute_type,
+                last_mute_time
+            )
+            VALUES (?, ?, 0, ?, 1, 1, ?, ?)
+            ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                timeout_end_time = excluded.timeout_end_time,
+                mute_count = warnings.mute_count + 1,
+                currently_muted = 1,
+                mute_type = excluded.mute_type,
+                last_mute_time = excluded.last_mute_time
+        """, (
+            guild_id,
+            user_id,
+            timeout_end_time,
+            mute_type,
+            time.time(),
+        ))
+
+        await database.commit()
+
+
+async def clear_mute_state(
+    guild_id: int,
+    user_id: int,
+    reset_warnings: bool = False,
+) -> bool:
+    """Clear active mute state while keeping the historical mute count."""
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        if reset_warnings:
+            cursor = await database.execute("""
+                UPDATE warnings
+                SET
+                    offenses = 0,
+                    timeout_end_time = NULL,
+                    currently_muted = 0,
+                    mute_type = NULL
+                WHERE guild_id = ? AND user_id = ?
+            """, (guild_id, user_id))
+        else:
+            cursor = await database.execute("""
+                UPDATE warnings
+                SET
+                    timeout_end_time = NULL,
+                    currently_muted = 0,
+                    mute_type = NULL
+                WHERE guild_id = ? AND user_id = ?
+            """, (guild_id, user_id))
+
+        await database.commit()
+        return cursor.rowcount > 0
+
+
+async def mark_mute_inactive(
+    guild_id: int,
+    user_id: int,
+) -> None:
+    await clear_mute_state(
+        guild_id,
+        user_id,
+        reset_warnings=False,
+    )
+
+
+async def get_member_moderation_record(
+    guild_id: int,
+    user_id: int,
+) -> tuple[int, int, bool, Optional[float], Optional[str]]:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        async with database.execute("""
+            SELECT
+                offenses,
+                mute_count,
+                currently_muted,
+                timeout_end_time,
+                mute_type
+            FROM warnings
+            WHERE guild_id = ? AND user_id = ?
+        """, (guild_id, user_id)) as cursor:
+            row = await cursor.fetchone()
+
+    if row is None:
+        return 0, 0, False, None, None
+
+    return (
+        int(row[0]),
+        int(row[1]),
+        bool(row[2]),
+        row[3],
+        row[4],
+    )
+
+
+async def get_guild_moderation_records(
+    guild_id: int,
+) -> list[tuple[int, int, int, bool, Optional[float], Optional[str]]]:
+    async with aiosqlite.connect(DATABASE_PATH) as database:
+        async with database.execute("""
+            SELECT
+                user_id,
+                offenses,
+                mute_count,
+                currently_muted,
+                timeout_end_time,
+                mute_type
+            FROM warnings
+            WHERE guild_id = ?
+            ORDER BY currently_muted DESC, offenses DESC, mute_count DESC
+        """, (guild_id,)) as cursor:
+            rows = await cursor.fetchall()
+
+    return [
+        (
+            int(row[0]),
+            int(row[1]),
+            int(row[2]),
+            bool(row[3]),
+            row[4],
+            row[5],
+        )
+        for row in rows
+    ]
 
 
 # ---------------------------------------------------------
@@ -590,7 +812,7 @@ async def get_all_changelog_channels() -> list[tuple[int, int]]:
     ]
 
 # ---------------------------------------------------------
-# Ticket System
+# TICKET SETTINGS AND STATE
 # ---------------------------------------------------------
 
 async def set_ticket_settings(
@@ -610,6 +832,7 @@ async def set_ticket_settings(
                 ticket_category_id = excluded.ticket_category_id,
                 ticket_log_channel_id = excluded.ticket_log_channel_id
         """, (guild_id, category_id, logging_channel_id))
+
         await database.commit()
 
 
@@ -627,15 +850,19 @@ async def get_ticket_settings(
     if row is None or row[0] is None:
         return None
 
-    return row[0], row[1]
+    return int(row[0]), int(row[1]) if row[1] is not None else None
 
 
 async def add_support_role(guild_id: int, role_id: int) -> bool:
     async with aiosqlite.connect(DATABASE_PATH) as database:
         cursor = await database.execute("""
-            INSERT OR IGNORE INTO support_roles (guild_id, role_id)
+            INSERT OR IGNORE INTO support_roles (
+                guild_id,
+                role_id
+            )
             VALUES (?, ?)
         """, (guild_id, role_id))
+
         await database.commit()
         return cursor.rowcount > 0
 
@@ -646,6 +873,7 @@ async def remove_support_role(guild_id: int, role_id: int) -> bool:
             DELETE FROM support_roles
             WHERE guild_id = ? AND role_id = ?
         """, (guild_id, role_id))
+
         await database.commit()
         return cursor.rowcount > 0
 
@@ -670,11 +898,16 @@ async def add_open_ticket(
 ) -> None:
     async with aiosqlite.connect(DATABASE_PATH) as database:
         await database.execute("""
-            INSERT INTO open_tickets (guild_id, user_id, channel_id)
+            INSERT INTO open_tickets (
+                guild_id,
+                user_id,
+                channel_id
+            )
             VALUES (?, ?, ?)
             ON CONFLICT(guild_id, user_id) DO UPDATE SET
                 channel_id = excluded.channel_id
         """, (guild_id, user_id, channel_id))
+
         await database.commit()
 
 
@@ -702,5 +935,6 @@ async def remove_open_ticket(
             DELETE FROM open_tickets
             WHERE guild_id = ? AND user_id = ?
         """, (guild_id, user_id))
+
         await database.commit()
         return cursor.rowcount > 0
