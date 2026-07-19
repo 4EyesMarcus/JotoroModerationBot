@@ -1,0 +1,127 @@
+JOTARO MODERATION PROPRIETARY SOURCE LICENSE
+
+Copyright (c) 2026 Marcus. All rights reserved.
+
+This Proprietary Source License ("License") governs access to and use of the
+source code, documentation, configuration examples, and other materials in
+this repository (collectively, the "Software").
+
+1. OWNERSHIP
+
+The Software is proprietary and remains the exclusive property of Marcus
+(the "Licensor"). No ownership rights are transferred under this License.
+
+2. LIMITED PERMISSION TO VIEW
+
+The Licensor permits individuals to view the publicly available Software for
+personal evaluation, educational reference, security review, and portfolio
+review only.
+
+This permission does not authorize operational use, deployment, copying,
+modification, redistribution, publication, sublicensing, resale, rebranding,
+or creation of a competing or derivative bot, service, or product.
+
+3. PROHIBITED USES
+
+Without prior written permission from the Licensor, you may not:
+
+a. copy, reproduce, download, or store substantial portions of the Software
+   except as technically necessary to view the repository through GitHub;
+
+b. modify, adapt, translate, reverse engineer, or create derivative works
+   based on the Software;
+
+c. deploy, host, operate, execute, or provide the Software as a bot, service,
+   application, hosted product, or software-as-a-service offering;
+
+d. redistribute, publish, mirror, sublicense, sell, rent, lease, or otherwise
+   make the Software available to another person or organization;
+
+e. remove or alter copyright notices, authorship information, branding, or
+   other proprietary notices;
+
+f. use the Software, its structure, or substantial portions of its
+   implementation to create, improve, or operate a competing product;
+
+g. represent the Software, or any substantial portion of it, as your own work;
+
+h. use the Software for unlawful, abusive, malicious, or unauthorized access
+   purposes.
+
+4. GITHUB PLATFORM RIGHTS
+
+If this repository is public on GitHub, GitHub's Terms of Service may allow
+GitHub users to view and fork the repository through GitHub's built-in
+functionality. Those platform rights do not grant permission to deploy,
+redistribute outside GitHub, relicense, sell, rebrand, or otherwise use the
+Software beyond what GitHub's Terms of Service require.
+
+5. THIRD-PARTY COMPONENTS
+
+The Software may rely on third-party libraries, frameworks, APIs, or other
+components. Those components remain governed by their respective licenses
+and terms. This License applies only to material owned by the Licensor and
+does not replace or restrict any third-party license.
+
+6. CONTRIBUTIONS
+
+No contribution, pull request, issue, suggestion, or other submission grants
+the contributor ownership of the Software.
+
+Unless the Licensor agrees otherwise in writing, any voluntarily submitted
+code contribution is provided to the Licensor with a perpetual, worldwide,
+non-exclusive, royalty-free, irrevocable right to use, reproduce, modify,
+distribute, sublicense, and incorporate that contribution into the Software.
+
+7. NO TRADEMARK LICENSE
+
+This License does not grant permission to use the names "Jotoro Moderation,"
+"Jotoro," associated logos, branding, service names, or other source
+identifiers except as necessary to accurately refer to the project.
+
+8. PERMISSION REQUESTS
+
+Permission for use beyond this License must be obtained from the Licensor in
+writing before the proposed use begins. Permission may be denied or made
+subject to additional terms.
+
+9. TERMINATION
+
+Any permission granted under this License terminates automatically if you
+violate its terms. Upon termination, you must stop using the Software and
+delete any unauthorized copies in your possession or control, except where
+retention is required by law or permitted by GitHub's Terms of Service.
+
+10. DISCLAIMER OF WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, RELIABILITY, OR
+AVAILABILITY.
+
+11. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE LICENSOR SHALL NOT BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR
+PUNITIVE DAMAGES, OR FOR ANY LOSS OF DATA, PROFITS, REVENUE, BUSINESS,
+GOODWILL, OR SERVICE AVAILABILITY, ARISING FROM ACCESS TO OR USE OF THE
+SOFTWARE.
+
+12. ENFORCEMENT AND RESERVATION OF RIGHTS
+
+Any rights not expressly granted by this License are reserved by the
+Licensor. Failure to enforce any provision does not waive the right to enforce
+that provision later.
+
+13. SEVERABILITY
+
+If any provision of this License is found unenforceable, the remaining
+provisions will remain in effect to the fullest extent permitted by law.
+
+14. ENTIRE AGREEMENT
+
+This License constitutes the entire agreement concerning the permissions
+granted for the Software unless the Licensor and another party enter into a
+separate written agreement.
+
+END OF LICENSE
