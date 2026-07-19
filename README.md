@@ -114,3 +114,13 @@ These commands are present in the bot, although Twitch notifications are still b
 /removetwitchchannel — Removes a Twitch streamer from the server’s notification list.
 
 /listtwitchchannels — Lists the Twitch channels currently followed by the server.
+
+**Copyright and Usage**
+
+Copyright © 2026 Marcus. All rights reserved.
+
+This source code is provided for viewing and educational reference only. Redistribution, resale, rebranding, or deployment of copied or modified versions is not permitted without written permission.
+
+**License**
+
+This project is proprietary and is not licensed for redistribution, rebranding, resale, or deployment. See the [LICENSE](LICENSE) file for details.
