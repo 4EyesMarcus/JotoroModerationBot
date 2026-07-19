@@ -1,6 +1,6 @@
 JoJo Moderation bot is a Discord bot that automatically detects and handles messages containing profanity. It keeps track of user offenses and applies timeouts or bans based on the number of offenses. Mainly used for streamer/youtube communities.
 
-Features:
+**Features:**
 
 Automatic detection of profanity in messages
 Keeps track of user offenses and applies timeouts or bans based on the number of offenses
@@ -9,7 +9,7 @@ Mute role integration for timeouts
 Ability to reset warnings for a specified member
 Ticket system for users to request support and get their issues resolved by staff
 
-Setup:
+**Setup:**
 
 Clone the repository
 Install the required packages using pip install -r requirements.txt
@@ -18,13 +18,13 @@ Add the bot to your server using the invite link generated in the Developer Port
 Edit the config.json file with your bot token and desired settings
 Run python bot.py to start the bot
 
-Usage:
+**Usage:**
 
 The bot will automatically detect and handle messages containing profanity. Offenses are tracked and timeouts or bans are applied based on the number of offenses.
 To reset warnings for a specified member, use the /resetwarnings command. By default, the command resets warnings for the command user.
 To open a support ticket, use the /ticket command. Staff can close tickets using the /close command.
 
-Code:
+**Code:**
 
 The main code for the bot is in bot.py.
 The check_message function checks each message for profanity and handles it appropriately.
@@ -33,7 +33,7 @@ The Ticket class in tickets.py handles the ticket system and includes methods fo
 
 In addition, Jotoro Moderation includes the following commands:
 
-General and Setup Commands
+**General and Setup Commands**
 
 /help — Displays the available commands and setup information.
 
@@ -43,7 +43,7 @@ General and Setup Commands
 
 /setup_tickets — Creates and configures the private ticket category, ticket logging channel, and initial support role.
 
-Moderation Commands
+**Moderation Commands**
 
 /ban — Bans a member from the server.
 
@@ -69,7 +69,7 @@ Moderation Commands
 
 /test_modlog — Sends a test entry to verify that the configured moderation log channel is working.
 
-Banned Words and Link Commands
+**Banned Words and Link Commands**
 
 /list_banned — Lists the banned words currently active in the server.
 
@@ -85,7 +85,7 @@ Banned Words and Link Commands
 
 /list_banned_links — Lists all links currently blocked by the server.
 
-Ticket Commands
+**Ticket Commands**
 
 /newticket — Creates a private support ticket under the server’s configured ticket category.
 
@@ -97,7 +97,7 @@ Ticket Commands
 
 /remove_support_role — Removes a role from the server’s ticket-support team.
 
-Updates and Support
+**Updates and Support**
 
 /set_changelog_channel — Changes the channel where Jotoro posts bot updates.
 
